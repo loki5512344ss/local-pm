@@ -32,10 +32,30 @@ import { KanbanCard } from './KanbanCard'
 import { KanbanColumn } from './KanbanColumn'
 import { TicketPanel } from './TicketPanel'
 import { applyDrop, isRealMove, resultFromPreview, type DragResult } from './dragLogic'
+import {
+  applyGroupDrop,
+  groupResultFromPreview,
+  isRealGroupMove,
+  type GroupPatch,
+} from './dragLogic'
 import { BoardListView } from './BoardListView'
+import { KanbanGroupColumn } from './KanbanGroupColumn'
 import type { BoardViewMode } from './BoardToolbar'
 import { listSortToParam, parseListSort, type ListSortClause } from '@/lib/list-sort'
+import {
+  compareTicketsInGroup,
+  groupIdOfTicket,
+  groupDimensionParam,
+  resolveBoardGroups,
+  type BoardGroup,
+  type GroupDimension,
+} from '@/lib/board-groups'
+import { TONE_TEXT, ticketPriorityMeta } from '@/lib/status'
+import { LABEL_SWATCH, labelColorOf } from '@/lib/labels'
+import { UserX, CircleSlash } from 'lucide-react'
+import { Avatar } from '@/components/ui/Avatar'
 import type { Status, Ticket } from '@/payload-types'
+import type { Label, Member } from '@/payload-types'
 
 interface ColumnPaginationInfo {
   page: number
@@ -65,10 +85,14 @@ interface KanbanBoardProps {
 interface BoardUrlExtras {
   view: BoardViewMode
   sort: ListSortClause[]
+  group: GroupDimension | null
 }
+
+const GROUP_TICKETS_LIMIT = 1000
 
 const PAGE_SIZE = 20
 const COLLAPSED_COLUMNS_KEY = 'local-pm:board-collapsed'
+const COLLAPSED_GROUPS_KEY = 'local-pm:board-group-collapsed'
 const BOARD_PATH = '/board'
 
 function emptyPagination(columnIds: string[]): ColumnPaginationState {
@@ -121,6 +145,7 @@ function filtersToSearch(
   if (filters.cycleId) params.set('cycle', filters.cycleId)
   if (filters.query) params.set('q', filters.query)
   if (extras?.view === 'list') params.set('view', 'list')
+  if (extras?.group) params.set('group', extras.group)
   const sort = listSortToParam(extras?.sort ?? [])
   if (sort) params.set('sort', sort)
   if (ticketId) params.set('ticket', ticketId)
@@ -157,6 +182,11 @@ export function KanbanBoard({
     parseListSort(searchParams.get('sort')),
   )
   const [listTotal, setListTotal] = useState<number | null>(null)
+  const [group, setGroup] = useState<GroupDimension | null>(() =>
+    groupDimensionParam(searchParams.get('group')),
+  )
+  const [groupMembers, setGroupMembers] = useState<Member[]>([])
+  const [groupLabels, setGroupLabels] = useState<Label[]>([])
   const { statusesForProject } = useWorkflow()
   const activeStatuses = useMemo(
     () => statusesForProject(filters.projectId),
@@ -171,6 +201,94 @@ export function KanbanBoard({
     (id: string | null | undefined) => (id ? (statusById.get(id)?.name ?? 'Unknown') : 'Unknown'),
     [statusById],
   )
+
+  // Group columns need the full member/label list of the workspace to name and
+  // order the axes; fetch them lazily, only for the dimension in use.
+  useEffect(() => {
+    if (group !== 'assignee') {
+      setGroupMembers([])
+      return
+    }
+    const controller = new AbortController()
+    fetch('/api/members?limit=1000&depth=0&sort=name&where[active]=true', {
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`${response.status} ${response.statusText}`)
+        const data = await response.json()
+        setGroupMembers((data.docs ?? []) as Member[])
+      })
+      .catch((error) => {
+        if ((error as Error).name !== 'AbortError') setGroupMembers([])
+      })
+    return () => controller.abort()
+  }, [group])
+
+  useEffect(() => {
+    if (group !== 'label') {
+      setGroupLabels([])
+      return
+    }
+    const controller = new AbortController()
+    fetch('/api/labels?limit=1000&depth=0&sort=name', { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`${response.status} ${response.statusText}`)
+        const data = await response.json()
+        setGroupLabels((data.docs ?? []) as Label[])
+      })
+      .catch((error) => {
+        if ((error as Error).name !== 'AbortError') setGroupLabels([])
+      })
+    return () => controller.abort()
+  }, [group])
+
+  const groups = useMemo(
+    () => (group ? resolveBoardGroups(group, groupMembers, groupLabels, tickets) : []),
+    [group, groupMembers, groupLabels, tickets],
+  )
+
+  const groupById = useMemo(
+    () => new Map(groups.map((group_) => [group_.id, group_])),
+    [groups],
+  )
+
+  const groupMemberById = useMemo(
+    () => new Map(groupMembers.map((member) => [String(member.id), member])),
+    [groupMembers],
+  )
+  const groupLabelById = useMemo(
+    () => new Map(groupLabels.map((label) => [String(label.id), label])),
+    [groupLabels],
+  )
+  const groupDropContext = useMemo(
+    () => ({ memberById: groupMemberById, labelById: groupLabelById }),
+    [groupMemberById, groupLabelById],
+  )
+
+  const ticketsByGroup = useMemo(() => {
+    if (!group) return null
+    const buckets = new Map<string, Ticket[]>()
+    for (const group_ of groups) buckets.set(group_.id, [])
+    for (const ticket of tickets) {
+      const id = groupIdOfTicket(ticket, group)
+      buckets.get(id)?.push(ticket)
+    }
+    for (const bucket of buckets.values()) bucket.sort(compareTicketsInGroup)
+    return buckets
+  }, [group, groups, tickets])
+
+  const groupNameFor = useCallback(
+    (id: string | null | undefined) => (id ? (groupById.get(id)?.label ?? null) : null),
+    [groupById],
+  )
+  /** The label of whatever container holds the ticket — a group when grouping, a status column otherwise. */
+  const containerLabelFor = useCallback(
+    (ticket: Ticket) =>
+      group
+        ? (groupNameFor(groupIdOfTicket(ticket, group)) ?? 'Unknown')
+        : labelFor(statusIdOf(ticket)),
+    [group, groupNameFor, labelFor],
+  )
   const filterSignature = JSON.stringify(filters)
   const activeFilterSignature = useRef(filterSignature)
   activeFilterSignature.current = filterSignature
@@ -183,6 +301,7 @@ export function KanbanBoard({
   const [deleting, setDeleting] = useState(false)
 
   const [collapsedColumns, setCollapsedColumns] = useState<string[]>([])
+  const [collapsedGroups, setCollapsedGroups] = useState<string[]>([])
   const [columnPagination, setColumnPagination] = useState<ColumnPaginationState>(() =>
     createInitialColumnPagination(initialTickets, columnIds, initialColumnPagination),
   )
@@ -202,6 +321,8 @@ export function KanbanBoard({
     }),
   )
   const dragOriginRef = useRef<{ status: string; sortOrder: number } | null>(null)
+  const dragGroupOriginRef = useRef<string | null>(null)
+  const dragTicketSnapshotRef = useRef<Ticket | null>(null)
 
   const ticketsRef = useRef<Ticket[]>(tickets)
   useEffect(() => {
@@ -221,6 +342,10 @@ export function KanbanBoard({
       const stored = localStorage.getItem(COLLAPSED_COLUMNS_KEY)
       if (stored) setCollapsedColumns(JSON.parse(stored) as string[])
     } catch {}
+    try {
+      const stored = localStorage.getItem(COLLAPSED_GROUPS_KEY)
+      if (stored) setCollapsedGroups(JSON.parse(stored) as string[])
+    } catch {}
   }, [])
 
   useEffect(() => {
@@ -236,6 +361,7 @@ export function KanbanBoard({
       setOpenTicketId(params.get('ticket'))
       setView(params.get('view') === 'list' ? 'list' : 'board')
       setListSort(parseListSort(params.get('sort')))
+      setGroup(groupDimensionParam(params.get('group')))
     }
     window.addEventListener('popstate', onPopState)
     return () => window.removeEventListener('popstate', onPopState)
@@ -246,11 +372,23 @@ export function KanbanBoard({
       const url = filtersToSearch(next, ticketId, {
         view: extras?.view ?? view,
         sort: extras?.sort ?? listSort,
+        group: extras?.group ?? group,
       })
       if (push) window.history.pushState(null, '', url)
       else window.history.replaceState(null, '', url)
     },
-    [view, listSort],
+    [view, listSort, group],
+  )
+
+  const changeGroup = useCallback(
+    (next: GroupDimension | null) => {
+      setGroup(next)
+      // The per-column cache is only valid for the ungrouped board; drop it so
+      // the columns refetch with true per-status pagination when grouping ends.
+      fetchedFor.current = ''
+      syncUrl(filters, openTicketId, true, { group: next })
+    },
+    [filters, openTicketId, syncUrl],
   )
 
   const changeView = useCallback(
@@ -323,6 +461,7 @@ export function KanbanBoard({
       cycleId: filters.cycleId,
       query: filters.query,
       columns: columnIds,
+      group,
     })
     if (signature === fetchedFor.current && retry === 0) return
     fetchedFor.current = signature
@@ -335,7 +474,9 @@ export function KanbanBoard({
         const fetchColumn = async (status: string) => {
           const params = new URLSearchParams({
             page: '1',
-            limit: String(PAGE_SIZE),
+            // Grouped columns hold tickets from every status, so one small
+            // status page would leave groups visibly incomplete.
+            limit: String(group ? GROUP_TICKETS_LIMIT : PAGE_SIZE),
             depth: '2',
             sort: 'sortOrder',
           })
@@ -405,6 +546,7 @@ export function KanbanBoard({
     toast,
     retry,
     columnIds,
+    group,
   ])
 
   const sensors = useSensors(

@@ -1,13 +1,15 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { LayoutGrid, List, Plus, Search, X, SlidersHorizontal } from 'lucide-react'
+import { Flag, LayoutGrid, List, Plus, Search, Tag, Users, X, SlidersHorizontal } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { useShortcut } from '@/lib/shortcuts'
+import { groupDimensionParam, type GroupDimension } from '@/lib/board-groups'
 import { useEntityDoc } from '@/hooks/useEntityDoc'
 import { Button } from '@/components/ui/Button'
 import { Chip } from '@/components/ui/Badge'
 import { Kbd } from '@/components/ui/Kbd'
+import { Select } from '@/components/ui/Select'
 import { CycleSelect, MemberSelect, ProjectSelect, TeamSelect } from '@/components/ui/EntityPickers'
 import { SavedBoardViews } from './SavedBoardViews'
 import type { Cycle, Member, Project, Team } from '@/payload-types'
@@ -31,6 +33,8 @@ export function BoardToolbar({
   refreshing = false,
   view = 'board',
   onViewChange,
+  group = null,
+  onGroupChange,
 }: {
   filters: BoardFilters
   onChange: (next: Partial<BoardFilters>) => void
@@ -40,6 +44,8 @@ export function BoardToolbar({
   onCreateTicket: () => void
   view?: BoardViewMode
   onViewChange?: (next: BoardViewMode) => void
+  group?: GroupDimension | null
+  onGroupChange?: (next: GroupDimension | null) => void
 }) {
   const [showFilters, setShowFilters] = useState(false)
   const searchRef = useRef<HTMLInputElement>(null)
@@ -113,6 +119,21 @@ export function BoardToolbar({
           />
           <Kbd raw="/" className="max-sm:hidden" />
         </label>
+
+        {onGroupChange && view === 'board' && (
+          <Select
+            aria-label="Group tickets by"
+            value={group ?? ''}
+            onValueChange={(next) => onGroupChange(groupDimensionParam(next))}
+            className="w-36 max-sm:w-full"
+            options={[
+              { value: '', label: 'No grouping' },
+              { value: 'assignee', label: 'Assignee', icon: Users },
+              { value: 'priority', label: 'Priority', icon: Flag },
+              { value: 'label', label: 'Label', icon: Tag },
+            ]}
+          />
+        )}
 
         <Button
           variant="secondary"
