@@ -1,13 +1,15 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { Plus, Search, X, SlidersHorizontal } from 'lucide-react'
+import { Flag, LayoutGrid, List, Plus, Search, Tag, Users, X, SlidersHorizontal } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { useShortcut } from '@/lib/shortcuts'
+import { groupDimensionParam, type GroupDimension } from '@/lib/board-groups'
 import { useEntityDoc } from '@/hooks/useEntityDoc'
 import { Button } from '@/components/ui/Button'
 import { Chip } from '@/components/ui/Badge'
 import { Kbd } from '@/components/ui/Kbd'
+import { Select } from '@/components/ui/Select'
 import { CycleSelect, MemberSelect, ProjectSelect, TeamSelect } from '@/components/ui/EntityPickers'
 import { SavedBoardViews } from './SavedBoardViews'
 import type { Cycle, Member, Project, Team } from '@/payload-types'
@@ -20,6 +22,8 @@ export interface BoardFilters {
   query: string
 }
 
+export type BoardViewMode = 'board' | 'list'
+
 export function BoardToolbar({
   filters,
   onChange,
@@ -27,6 +31,10 @@ export function BoardToolbar({
   onCreateTicket,
   hasProjects = true,
   refreshing = false,
+  view = 'board',
+  onViewChange,
+  group = null,
+  onGroupChange,
 }: {
   filters: BoardFilters
   onChange: (next: Partial<BoardFilters>) => void
@@ -34,6 +42,10 @@ export function BoardToolbar({
   hasProjects?: boolean
   refreshing?: boolean
   onCreateTicket: () => void
+  view?: BoardViewMode
+  onViewChange?: (next: BoardViewMode) => void
+  group?: GroupDimension | null
+  onGroupChange?: (next: GroupDimension | null) => void
 }) {
   const [showFilters, setShowFilters] = useState(false)
   const searchRef = useRef<HTMLInputElement>(null)
@@ -84,6 +96,9 @@ export function BoardToolbar({
           <h1 className="text-2xl font-semibold text-text">Board</h1>
           <p className="mt-1 text-sm text-text-muted">A clear view of what is next.</p>
         </div>
+        {onViewChange && (
+          <BoardViewSwitcher view={view} onChange={onViewChange} />
+        )}
         {hasProjects && (
           <Button variant="primary" icon={Plus} onClick={onCreateTicket} shortcut="c">
             New ticket
@@ -104,6 +119,21 @@ export function BoardToolbar({
           />
           <Kbd raw="/" className="max-sm:hidden" />
         </label>
+
+        {onGroupChange && view === 'board' && (
+          <Select
+            aria-label="Group tickets by"
+            value={group ?? ''}
+            onValueChange={(next) => onGroupChange(groupDimensionParam(next))}
+            className="w-36 max-sm:w-full"
+            options={[
+              { value: '', label: 'No grouping' },
+              { value: 'assignee', label: 'Assignee', icon: Users },
+              { value: 'priority', label: 'Priority', icon: Flag },
+              { value: 'label', label: 'Label', icon: Tag },
+            ]}
+          />
+        )}
 
         <Button
           variant="secondary"
@@ -239,6 +269,48 @@ export function BoardToolbar({
           Clear all
         </Button>
       </div>
+    </div>
+  )
+}
+
+const VIEW_OPTIONS: { value: BoardViewMode; label: string; icon: typeof LayoutGrid }[] = [
+  { value: 'board', label: 'Board', icon: LayoutGrid },
+  { value: 'list', label: 'List', icon: List },
+]
+
+export function BoardViewSwitcher({
+  view,
+  onChange,
+}: {
+  view: BoardViewMode
+  onChange: (next: BoardViewMode) => void
+}) {
+  return (
+    <div
+      role="group"
+      aria-label="View mode"
+      className="flex items-center gap-0.5 rounded-sm border border-border bg-surface p-0.5"
+    >
+      {VIEW_OPTIONS.map((option) => {
+        const Icon = option.icon
+        const active = view === option.value
+        return (
+          <button
+            key={option.value}
+            type="button"
+            aria-pressed={active}
+            onClick={() => onChange(option.value)}
+            className={cn(
+              'inline-flex h-7 items-center gap-1.5 rounded-xs px-2 text-sm font-medium',
+              'transition-colors duration-micro ease-standard',
+              active ? 'bg-surface-hover text-text' : 'text-text-muted hover:text-text',
+            )}
+          >
+            <Icon className="size-4" aria-hidden />
+            {option.label}
+          </button>
+        )
+      })}
     </div>
   )
 }

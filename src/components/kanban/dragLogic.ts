@@ -1,6 +1,8 @@
 import { arrayMove } from '@dnd-kit/sortable'
 import { statusIdOf } from '@/lib/workflow'
-import type { Ticket } from '@/payload-types'
+import { groupIdOfTicket, type BoardGroup, type GroupDimension } from '@/lib/board-groups'
+import { TicketPriority } from '@/types/enums'
+import type { Label, Member, Ticket } from '@/payload-types'
 
 
 
@@ -128,4 +130,156 @@ export function computeDragResult(
   }
 
   return result
+}
+
+/**
+ * Drag semantics when the board is grouped by assignee, priority or label.
+ * Dropping a card into another group reassigns that one field and leaves
+ * status and sort order alone.
+ */
+export type GroupPatch = Partial<Pick<Ticket, 'assignee' | 'priority' | 'labels'>>
+
+export interface GroupDropContext {
+  memberById: Map<string, Member>
+  labelById: Map<string, Label>
+}
+
+export interface GroupDropResult {
+  tickets: Ticket[]
+  groupId: string | null
+  patch: GroupPatch | null
+  /**
+   * True when this drop moves the card out of its CURRENT group. Whether it is
+   * a real move is decided against the drag origin — see isRealGroupMove.
+   */
+  changed: boolean
+}
+
+const EMPTY_DROP_CONTEXT: GroupDropContext = {
+  memberById: new Map(),
+  labelById: new Map(),
+}
+
+function emptyGroupDrop(tickets: Ticket[]): GroupDropResult {
+  return { tickets, groupId: null, patch: null, changed: false }
+}
+
+export function resolveGroupDropTarget(
+  groups: BoardGroup[],
+  tickets: Ticket[],
+  activeId: string,
+  overId: string,
+  dimension: GroupDimension,
+): BoardGroup | null {
+  if (activeId === overId) return null
+
+  const groupById = new Map(groups.map((group) => [group.id, group]))
+  const columnGroup = groupById.get(overId)
+  if (columnGroup) return columnGroup
+
+  const overTicket = tickets.find((t) => t.id === overId)
+  if (!overTicket) return null
+
+  return groupById.get(groupIdOfTicket(overTicket, dimension)) ?? null
+}
+
+/** The PATCH payload that puts a ticket into a group column. */
+export function groupPatchForTarget(
+  target: BoardGroup,
+  context: GroupDropContext = EMPTY_DROP_CONTEXT,
+): { patch: GroupPatch; hydrated: Partial<Ticket> } {
+  if (target.dimension === 'assignee') {
+    const member = target.value ? (context.memberById.get(target.value) ?? null) : null
+    return {
+      patch: { assignee: target.value },
+      hydrated: { assignee: (member ?? target.value) as Ticket['assignee'] },
+    }
+  }
+  if (target.dimension === 'priority') {
+    const PRIORITIES: readonly string[] = [
+      'URGENT',
+      'HIGH',
+      'MEDIUM',
+      'LOW',
+      'NO_PRIORITY',
+    ]
+    const priority = PRIORITIES.includes(target.value ?? '')
+      ? (target.value as TicketPriority)
+      : TicketPriority.NO_PRIORITY
+    return { patch: { priority }, hydrated: { priority } }
+  }
+  const label = target.value ? (context.labelById.get(target.value) ?? null) : null
+  const labels = label ? [label] : []
+  return {
+    patch: { labels: labels.map((entry) => String(entry.id)) },
+    hydrated: { labels: labels as Ticket['labels'] },
+  }
+}
+
+export function applyGroupDrop(
+  tickets: Ticket[],
+  activeId: string,
+  overId: string,
+  dimension: GroupDimension,
+  groups: BoardGroup[],
+  context: GroupDropContext = EMPTY_DROP_CONTEXT,
+): GroupDropResult {
+  const activeTicket = tickets.find((t) => t.id === activeId)
+  if (!activeTicket) return emptyGroupDrop(tickets)
+
+  const target = resolveGroupDropTarget(groups, tickets, activeId, overId, dimension)
+  if (!target) return emptyGroupDrop(tickets)
+
+  const changed = groupIdOfTicket(activeTicket, dimension) !== target.id
+  if (!changed) return emptyGroupDrop(tickets)
+
+  const { patch, hydrated } = groupPatchForTarget(target, context)
+  return {
+    tickets: tickets.map((ticket) => (ticket.id === activeId ? { ...ticket, ...hydrated } : ticket)),
+    groupId: target.id,
+    patch,
+    changed,
+  }
+}
+
+/**
+ * dnd-kit reports `over === active` at the end of a drag whose preview the
+ * onDragOver handler already applied. Read the position the preview put the
+ * card in and compare it against the drag origin, exactly like the status flow.
+ */
+export function groupResultFromPreview(
+  tickets: Ticket[],
+  activeId: string,
+  dimension: GroupDimension,
+): GroupDropResult {
+  const active = tickets.find((t) => t.id === activeId)
+  if (!active) return emptyGroupDrop(tickets)
+
+  const groupId = groupIdOfTicket(active, dimension)
+  if (dimension === 'assignee') {
+    const assignee = active.assignee
+    const value = assignee && typeof assignee === 'object' ? String(assignee.id) : assignee || null
+    return { tickets, groupId, patch: { assignee: value }, changed: true }
+  }
+  if (dimension === 'priority') {
+    return { tickets, groupId, patch: { priority: active.priority ?? TicketPriority.NO_PRIORITY }, changed: true }
+  }
+  const labels = Array.isArray(active.labels) ? active.labels : []
+  return {
+    tickets,
+    groupId,
+    patch: {
+      labels: labels.map((entry) => (typeof entry === 'object' ? String(entry.id) : String(entry))),
+    },
+    changed: true,
+  }
+}
+
+export function isRealGroupMove(
+  result: GroupDropResult,
+  origin: { groupId: string | null } | null,
+): boolean {
+  if (!result.groupId || !result.patch) return false
+  if (!origin) return true
+  return result.groupId !== origin.groupId
 }
