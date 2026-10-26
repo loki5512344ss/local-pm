@@ -2,7 +2,7 @@
   "$comment": "Committed to the repo on purpose: this is the public statement of where local-pm is going, so contributors can aim at it. Read agentInstructions before touching anything below.",
   "version": 1,
   "createdAt": "2026-09-19",
-  "lastUpdated": "2026-10-08",
+  "lastUpdated": "2026-10-26",
   "source": "Feature gap analysis of local-pm against Linear, Jira, Plane, Asana, Monday, Notion, and the self-hosted field (Huly, Taiga, OpenProject, Vikunja, Focalboard).",
   "agentInstructions": {
     "purpose": "This is the single source of truth for what is planned, what is in flight, and what is finished in this repo. Keep it accurate. A stale roadmap is worse than no roadmap.",
@@ -1111,7 +1111,7 @@
       "slug": "mcp-http-transport",
       "title": "MCP HTTP/SSE transport",
       "tier": 6,
-      "status": "todo",
+      "status": "done",
       "effort": "M",
       "summary": "Offer a streamable HTTP transport alongside stdio so remote agents and multiple concurrent clients can connect.",
       "rationale": "stdio binds the server to one local child process. CREDITS.md notes ArsNovaSingers built a Cloud Run variant; the portable version is a generic HTTP transport, not a deployment-specific one.",
@@ -1121,8 +1121,8 @@
         "mcp-server/src/index.ts"
       ],
       "startedAt": null,
-      "completedAt": null,
-      "notes": "Requires auth to be real. Do not ship an HTTP transport that inherits the open-by-default posture."
+      "completedAt": "2026-10-26",
+      "notes": "Requires auth to be real. Do not ship an HTTP transport that inherits the open-by-default posture. Streamable HTTP entry at mcp-server/src/http.ts (node:http, no new runtime deps): stateful sessions with Mcp-Session-Id, GET/DELETE per spec, DNS-rebinding protection, loopback bind by default (127.0.0.1:3020, LOCAL_PM_MCP_HOST/PORT), optional bearer token via LOCAL_PM_MCP_TOKEN (401 otherwise). stdio stays the default; server logic extracted to local-pm-server.ts with a createLocalPmServer factory. Vitest coverage in tests/mcp-http.test.ts."
     },
     {
       "id": 48,
@@ -1314,7 +1314,7 @@
       "slug": "mcp-status-enum-is-still-the-old-three",
       "title": "MCP still advertises only todo / in_progress / done",
       "tier": 1,
-      "status": "todo",
+      "status": "done",
       "effort": "S",
       "summary": "Drop the hard-coded status enum from the four MCP tool schemas that still carry it, so the schema matches what resolveStatusId already accepts.",
       "rationale": "Task 5 made status a collection and taught resolveStatusId to accept any key, name or id, but list_tickets, create_ticket, update_ticket and move_ticket still declare enum: [todo, in_progress, done] in their inputSchema. A client that validates against the schema cannot reach a workspace custom status, so configurable statuses are invisible over MCP.",
@@ -1325,8 +1325,8 @@
         "mcp-server/README.md"
       ],
       "startedAt": null,
-      "completedAt": null,
-      "notes": "Found while doing task 6. The enum appears four times. Replace it with a free string plus a description pointing at get_board for the workspace workflow, or add a list_statuses tool (already wanted by task 48) and reference that."
+      "completedAt": "2026-10-26",
+      "notes": "Found while doing task 6. The enum appears four times. Replace it with a free string plus a description pointing at get_board for the workspace workflow, or add a list_statuses tool (already wanted by task 48) and reference that. Ticket tools now resolve status key, name or id against the workspace workflow (statusesForProject + resolveStatusId with a 30s cache) and fail with the available keys; schemas no longer hardcode todo / in_progress / done; new list_statuses tool exposes the configured workflow."
     },
     {
       "id": 58,
@@ -1375,7 +1375,7 @@
       "slug": "concurrent-patches-return-a-write-conflict",
       "title": "Two quick inline edits on one record can return a 500",
       "tier": 2,
-      "status": "todo",
+      "status": "done",
       "effort": "S",
       "summary": "Two PATCHes to the same record landing within a few hundred milliseconds make Mongo report a write conflict and the second request fails with a 500.",
       "rationale": "Every detail view autosaves per field through useOptimisticPatch. A user who changes status and then priority quickly is issuing exactly this pattern, and the second edit silently reverts with a raw error in the toast.",
@@ -1386,15 +1386,15 @@
         "src/collections/"
       ],
       "startedAt": null,
-      "completedAt": null,
-      "notes": "Found while building task 11. Reproduced with two date patches on one project: the server logs \"Write conflict during plan execution and yielding is disabled\" as a TransientTransactionError and returns 500. Worth weighing: retrying a TransientTransactionError on the server, coalescing patches per record in the hook so a second change queues behind the first, or both. The hook already reverts and toasts on failure, so the user does not lose data - but the message is a raw Mongo string, which fails the error copy rule in 07-feedback-and-errors.md."
+      "completedAt": "2026-10-26",
+      "notes": "Found while building task 11. Reproduced with two date patches on one project: the server logs \"Write conflict during plan execution and yielding is disabled\" as a TransientTransactionError and returns 500. Worth weighing: retrying a TransientTransactionError on the server, coalescing patches per record in the hook so a second change queues behind the first, or both. The hook already reverts and toasts on failure, so the user does not lose data - but the message is a raw Mongo string, which fails the error copy rule in 07-feedback-and-errors.md. Fixed with a per-record serial patch queue (src/lib/patch-queue.ts): a later change queues behind the in-flight one and is built on the settled result, so two PATCHes never overlap. Regression tests in tests/patch-queue.test.ts and tests/useOptimisticPatch.test.ts."
     },
     {
       "id": 62,
       "slug": "entity-picker-hides-the-overflow",
       "title": "Entity pickers show the first 20 matches with no sign there are more",
       "tier": 2,
-      "status": "todo",
+      "status": "done",
       "effort": "S",
       "summary": "EntitySelect loads one page of 20 sorted A-Z. Past 20 records the rest are simply absent, with no count, no hint to keep typing and no way to page.",
       "rationale": "A user with 30 projects opens Add a project, does not see theirs, and has no way to tell whether it is missing or merely off the page. 04-data-views.md asks for a live result count for exactly this reason.",
@@ -1405,8 +1405,8 @@
         "src/hooks/useEntityQuery.ts"
       ],
       "startedAt": null,
-      "completedAt": null,
-      "notes": "Found while merging task 11. The e2e suite hid it because specs that pick from a picker happened to seed names that sort early; adding seven more projects made e2e/initiatives.spec.ts fail on a project that was real and simply not on the first page. Cheapest honest fix is a footer line - \"20 of 34, keep typing to narrow\" - rather than paging a popover. Worth checking every EntitySelect caller at the same time; the board project filter in e2e/accessibility.spec.ts has the same latent dependence on alphabetical luck and only passes today because \"a11y\" sorts early."
+      "completedAt": "2026-10-26",
+      "notes": "Found while merging task 11. The e2e suite hid it because specs that pick from a picker happened to seed names that sort early; adding seven more projects made e2e/initiatives.spec.ts fail on a project that was real and simply not on the first page. Cheapest honest fix is a footer line - \"20 of 34, keep typing to narrow\" - rather than paging a popover. Worth checking every EntitySelect caller at the same time; the board project filter in e2e/accessibility.spec.ts has the same latent dependence on alphabetical luck and only passes today because \"a11y\" sorts early. Audit found this already resolved by the server-backed pickers rebuild: EntitySelect paginates (Load more + infinite-scroll sentinel) and shows an \"X of Y shown\" footer; every picker routes through it. Verified against every caller, no code change needed."
     },
     {
       "id": 63,
