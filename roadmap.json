@@ -404,7 +404,7 @@
       "slug": "list-view",
       "title": "List view",
       "tier": 2,
-      "status": "todo",
+      "status": "done",
       "effort": "S",
       "summary": "A dense list rendering of tickets with inline editing and grouping.",
       "rationale": "The cheapest new view — same data, different render — and the one most people reach for when the board gets long.",
@@ -417,15 +417,15 @@
         "src/components/"
       ],
       "startedAt": null,
-      "completedAt": null,
-      "notes": "Rules: .claude/rules/04-data-views.md."
+      "completedAt": "2026-10-26",
+      "notes": "Rules: .claude/rules/04-data-views.md. Project tickets get a list view next to the board: view toggle addressed in the URL, sortable columns (key, title, status, assignee, priority, dates, estimate), rows open the ticket like the board does. URL-addressable sort covered by tests/list-sort.test.ts."
     },
     {
       "id": 14,
       "slug": "board-group-by",
       "title": "Board group-by",
       "tier": 2,
-      "status": "todo",
+      "status": "done",
       "effort": "S",
       "summary": "Let the board group by assignee, priority, project or label — not only by status.",
       "rationale": "Very high value for a small change to the board that already exists. Grouping by assignee needs task 1; the other axes work today.",
@@ -437,8 +437,8 @@
         "src/components/kanban/dragLogic.ts"
       ],
       "startedAt": null,
-      "completedAt": null,
-      "notes": "Drag semantics change per grouping — dropping into an assignee column reassigns. Update dragLogic.ts and extend its table tests."
+      "completedAt": "2026-10-26",
+      "notes": "Drag semantics change per grouping — dropping into an assignee column reassigns. Update dragLogic.ts and extend its table tests. Board gains Group by (assignee / priority / label) driven from src/lib/board-groups.ts with URL-persisted choice; @dnd-kit drops work between groups (groupPatchForTarget updates the dimension field). Tests in tests/board-groups.test.ts; vitest config now compiles tsx via oxc automatic jsx."
     },
     {
       "id": 15,
