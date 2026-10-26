@@ -116,7 +116,7 @@ describe('MCP streamable HTTP transport (task 47)', () => {
 
       expect(apiCalls.length).toBeGreaterThan(0)
       for (const call of apiCalls) {
-        expect(call.headers.Authorization).toBe('agent-key-1234')
+        expect(call.headers.Authorization).toBe('users API-Key agent-key-1234')
       }
     } finally {
       delete process.env.LOCAL_PM_API_KEY

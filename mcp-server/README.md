@@ -101,6 +101,7 @@ This makes `local-pm-mcp` available globally.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `LOCAL_PM_URL` | `http://localhost:3010` | Base URL of Local PM instance |
+| `LOCAL_PM_API_KEY` | _(unset)_ | API key of a Local PM user, sent as `Authorization: users API-Key <key>`. Required when the instance runs with `LOCAL_PM_REQUIRE_AUTH=true` |
 | `LOCAL_PM_MCP_HOST` | `127.0.0.1` | HTTP transport bind address (`--http` mode) |
 | `LOCAL_PM_MCP_PORT` | `3020` | HTTP transport port (`--http` mode) |
 | `LOCAL_PM_MCP_TOKEN` | _(unset)_ | When set, HTTP transport requires `Authorization: Bearer <token>` and answers 401 otherwise |
