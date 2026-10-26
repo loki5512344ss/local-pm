@@ -32,21 +32,24 @@ const STATUSES_RESPONSE = {
 function stubStatusesApi() {
   // The MCP client itself speaks fetch to 127.0.0.1:<port>/mcp — only the
   // server-side calls to the Local PM API are faked, everything else passes
-  // through to the real network stack.
+  // through to the real network stack. Captures the Local PM API calls so
+  // tests can assert on headers.
   const realFetch = globalThis.fetch
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async (url: unknown, init?: RequestInit) => {
-      const target = String(url)
-      if (target.includes('/api/statuses')) {
-        return {
-          ok: true,
-          json: async () => STATUSES_RESPONSE,
-        } as unknown as Response
-      }
-      return realFetch(url as string, init) as unknown as Response
-    }),
-  )
+  const apiCalls: Array<{ url: string; headers: Record<string, unknown> }> = []
+  const stub = vi.fn(async (url: unknown, init?: RequestInit) => {
+    const target = String(url)
+    if (target.includes('/api/')) {
+      apiCalls.push({ url: target, headers: { ...(init?.headers ?? {}) } })
+      const payload = target.includes('/api/statuses') ? STATUSES_RESPONSE : { docs: [], totalDocs: 0 }
+      return {
+        ok: true,
+        json: async () => payload,
+      } as unknown as Response
+    }
+    return realFetch(url as string, init) as unknown as Response
+  })
+  vi.stubGlobal('fetch', stub)
+  return apiCalls
 }
 
 async function connect(handle: HttpMcpHandle): Promise<Client> {
@@ -98,6 +101,26 @@ describe('MCP streamable HTTP transport (task 47)', () => {
     expect(second.getServerVersion()).toBeDefined()
     await first.close()
     await second.close()
+  })
+
+  it('sends the LOCAL_PM_API_KEY as the Payload Authorization header', async () => {
+    const apiCalls = stubStatusesApi()
+    process.env.LOCAL_PM_API_KEY = 'agent-key-1234'
+    try {
+      const handle = await startHttpMcp({ port: 0 })
+      handles.push(handle)
+
+      const client = await connect(handle)
+      await client.callTool({ name: 'list_projects', arguments: {} })
+      await client.close()
+
+      expect(apiCalls.length).toBeGreaterThan(0)
+      for (const call of apiCalls) {
+        expect(call.headers.Authorization).toBe('agent-key-1234')
+      }
+    } finally {
+      delete process.env.LOCAL_PM_API_KEY
+    }
   })
 
   it('answers 401 when a token is configured and the request carries none', async () => {

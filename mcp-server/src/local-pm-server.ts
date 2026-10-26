@@ -556,8 +556,15 @@ async function apiRequest(
     method,
     headers: {
       'Content-Type': 'application/json',
-    },
+    } as Record<string, string>,
   };
+
+  // Payload API-key auth: the raw key goes in the Authorization header with no
+  // Bearer prefix. LOCAL_PM_API_KEY is read per request so tests can stub it.
+  const apiKey = process.env.LOCAL_PM_API_KEY;
+  if (apiKey) {
+    (options.headers as Record<string, string>).Authorization = apiKey;
+  }
 
   if (body) {
     options.body = JSON.stringify(body);
