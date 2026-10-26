@@ -32,6 +32,9 @@ import { KanbanCard } from './KanbanCard'
 import { KanbanColumn } from './KanbanColumn'
 import { TicketPanel } from './TicketPanel'
 import { applyDrop, isRealMove, resultFromPreview, type DragResult } from './dragLogic'
+import { BoardListView } from './BoardListView'
+import type { BoardViewMode } from './BoardToolbar'
+import { listSortToParam, parseListSort, type ListSortClause } from '@/lib/list-sort'
 import type { Status, Ticket } from '@/payload-types'
 
 interface ColumnPaginationInfo {
@@ -57,6 +60,11 @@ interface KanbanBoardProps {
   statuses: Status[]
   hasProjects: boolean
   initialColumnPagination?: InitialColumnPagination[]
+}
+
+interface BoardUrlExtras {
+  view: BoardViewMode
+  sort: ListSortClause[]
 }
 
 const PAGE_SIZE = 20
@@ -101,13 +109,20 @@ function createInitialColumnPagination(
   return state
 }
 
-function filtersToSearch(filters: BoardFilters, ticketId: string | null): string {
+function filtersToSearch(
+  filters: BoardFilters,
+  ticketId: string | null,
+  extras?: Partial<BoardUrlExtras>,
+): string {
   const params = new URLSearchParams()
   if (filters.projectId) params.set('project', filters.projectId)
   if (filters.teamId) params.set('team', filters.teamId)
   if (filters.assigneeId) params.set('assignee', filters.assigneeId)
   if (filters.cycleId) params.set('cycle', filters.cycleId)
   if (filters.query) params.set('q', filters.query)
+  if (extras?.view === 'list') params.set('view', 'list')
+  const sort = listSortToParam(extras?.sort ?? [])
+  if (sort) params.set('sort', sort)
   if (ticketId) params.set('ticket', ticketId)
   const qs = params.toString()
   return qs ? `/board?${qs}` : BOARD_PATH
@@ -135,6 +150,13 @@ export function KanbanBoard({
     cycleId: searchParams.get('cycle'),
     query: searchParams.get('q') ?? '',
   })
+  const [view, setView] = useState<BoardViewMode>(() =>
+    searchParams.get('view') === 'list' ? 'list' : 'board',
+  )
+  const [listSort, setListSort] = useState<ListSortClause[]>(() =>
+    parseListSort(searchParams.get('sort')),
+  )
+  const [listTotal, setListTotal] = useState<number | null>(null)
   const { statusesForProject } = useWorkflow()
   const activeStatuses = useMemo(
     () => statusesForProject(filters.projectId),
@@ -212,16 +234,40 @@ export function KanbanBoard({
         query: params.get('q') ?? '',
       })
       setOpenTicketId(params.get('ticket'))
+      setView(params.get('view') === 'list' ? 'list' : 'board')
+      setListSort(parseListSort(params.get('sort')))
     }
     window.addEventListener('popstate', onPopState)
     return () => window.removeEventListener('popstate', onPopState)
   }, [])
 
-  const syncUrl = useCallback((next: BoardFilters, ticketId: string | null, push: boolean) => {
-    const url = filtersToSearch(next, ticketId)
-    if (push) window.history.pushState(null, '', url)
-    else window.history.replaceState(null, '', url)
-  }, [])
+  const syncUrl = useCallback(
+    (next: BoardFilters, ticketId: string | null, push: boolean, extras?: Partial<BoardUrlExtras>) => {
+      const url = filtersToSearch(next, ticketId, {
+        view: extras?.view ?? view,
+        sort: extras?.sort ?? listSort,
+      })
+      if (push) window.history.pushState(null, '', url)
+      else window.history.replaceState(null, '', url)
+    },
+    [view, listSort],
+  )
+
+  const changeView = useCallback(
+    (next: BoardViewMode) => {
+      setView(next)
+      syncUrl(filters, openTicketId, true, { view: next })
+    },
+    [filters, openTicketId, syncUrl],
+  )
+
+  const changeListSort = useCallback(
+    (next: ListSortClause[]) => {
+      setListSort(next)
+      syncUrl(filters, openTicketId, true, { sort: next })
+    },
+    [filters, openTicketId, syncUrl],
+  )
 
   const updateFilters = useCallback(
     (patch: Partial<BoardFilters>) => {
@@ -248,18 +294,25 @@ export function KanbanBoard({
       if (filters.teamId) params.set('team', filters.teamId)
       if (filters.assigneeId) params.set('assignee', filters.assigneeId)
       if (filters.cycleId) params.set('cycle', filters.cycleId)
-      params.set('returnTo', filtersToSearch(filters, null))
+      params.set('returnTo', filtersToSearch(filters, null, { view, sort: listSort }))
       router.push(`/tickets/new?${params}`)
     },
-    [filters, router],
+    [filters, router, view, listSort],
   )
 
   const editTicket = useCallback(
     (ticket: Ticket) => {
-      const params = new URLSearchParams({ returnTo: filtersToSearch(filters, ticket.id) })
+      const params = new URLSearchParams({
+        returnTo: filtersToSearch(filters, ticket.id, { view, sort: listSort }),
+      })
       router.push(`/tickets/${ticket.id}/edit?${params}`)
     },
-    [filters, router],
+    [filters, router, view, listSort],
+  )
+
+  const ticketHref = useCallback(
+    (ticket: Ticket) => filtersToSearch(filters, ticket.id, { view, sort: listSort }),
+    [filters, view, listSort],
   )
 
   useEffect(() => {
@@ -386,6 +439,11 @@ export function KanbanBoard({
   )
 
   const totalLoaded = tickets.length
+  const statusResultCount = columnIds.reduce(
+    (count, status) => count + (columnPagination[status]?.totalDocs ?? 0),
+    0,
+  )
+  const resultCount = view === 'list' ? (listTotal ?? statusResultCount) : statusResultCount
   const hasFilters = Boolean(
     filters.projectId || filters.teamId || filters.assigneeId || filters.cycleId || filters.query,
   )
@@ -671,12 +729,11 @@ export function KanbanBoard({
       <BoardToolbar
         filters={filters}
         onChange={updateFilters}
-        resultCount={columnIds.reduce(
-          (count, status) => count + (columnPagination[status]?.totalDocs ?? 0),
-          0,
-        )}
+        resultCount={resultCount}
         hasProjects={hasProjects}
         refreshing={refreshing}
+        view={view}
+        onViewChange={changeView}
         onCreateTicket={() => columnIds[0] && createTicket(columnIds[0])}
       />
 
@@ -695,6 +752,16 @@ export function KanbanBoard({
           />
         ) : !hasProjects ? (
           <WelcomeBoard />
+        ) : view === 'list' ? (
+          <BoardListView
+            filters={filters}
+            sort={listSort}
+            onSortChange={changeListSort}
+            onOpenTicket={openTicket}
+            ticketHref={ticketHref}
+            openTicketId={openTicketId}
+            onTotalChange={setListTotal}
+          />
         ) : totalLoaded === 0 && hasFilters && !refreshing ? (
           <EmptyState
             kind="no-match"
@@ -738,7 +805,7 @@ export function KanbanBoard({
                   onToggleCollapsed={() => toggleColumn(status)}
                   onAddCard={() => createTicket(status)}
                   onOpenTicket={openTicket}
-                  ticketHref={(ticket) => filtersToSearch(filters, ticket.id)}
+                  ticketHref={ticketHref}
                   onEditTicket={editTicket}
                   onDeleteTicket={setPendingDelete}
                   onMoveToColumn={moveToColumn}
