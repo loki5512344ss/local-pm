@@ -50,6 +50,7 @@
     "tailwind-merge": "^3.7.0"
   },
   "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "@playwright/test": "^1.63.0",
     "@tailwindcss/postcss": "^4.1.18",
     "@types/node": "^25.0.10",
