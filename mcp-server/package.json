@@ -5,12 +5,14 @@
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "local-pm-mcp": "dist/index.js"
+    "local-pm-mcp": "dist/index.js",
+    "local-pm-mcp-http": "dist/http.js"
   },
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "start:http": "node dist/http.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0"

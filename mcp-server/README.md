@@ -41,7 +41,7 @@ This MCP server provides AI models with full access to Local PM functionality:
 - `get_ticket` - Get ticket details by ID (includes subtasks)
 - `create_ticket` - Create a new ticket with optional subtasks
 - `update_ticket` - Update ticket fields
-- `move_ticket` - Move ticket between statuses (todo, in_progress, done)
+- `move_ticket` - Move ticket between statuses (statuses are configurable — see `list_statuses`)
 - `delete_ticket` - Delete a ticket
 
 ### Epics
@@ -62,6 +62,9 @@ This MCP server provides AI models with full access to Local PM functionality:
 
 ### Labels
 - `list_labels` - List the shared labels in the workspace, with their group
+
+### Statuses
+- `list_statuses` - List the workflow statuses configured in the workspace. Statuses are configurable, so ticket tools accept a status key, name or id — call this first when you need an exact value
 
 ### Activity
 - `list_activity` - Read a ticket's change history, oldest first
@@ -98,6 +101,9 @@ This makes `local-pm-mcp` available globally.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `LOCAL_PM_URL` | `http://localhost:3010` | Base URL of Local PM instance |
+| `LOCAL_PM_MCP_HOST` | `127.0.0.1` | HTTP transport bind address (`--http` mode) |
+| `LOCAL_PM_MCP_PORT` | `3020` | HTTP transport port (`--http` mode) |
+| `LOCAL_PM_MCP_TOKEN` | _(unset)_ | When set, HTTP transport requires `Authorization: Bearer <token>` and answers 401 otherwise |
 
 ### Claude Desktop Configuration
 
@@ -155,6 +161,28 @@ Add to your Claude Code settings file:
   }
 }
 ```
+
+### Streamable HTTP transport (remote and web clients)
+
+stdio only reaches clients that can spawn a local process. The HTTP entry
+exposes the same tools at `http://HOST:PORT/mcp` so remote MCP clients —
+ChatGPT connectors, web agents, other machines — can connect over the
+Streamable HTTP transport:
+
+```bash
+cd mcp-server
+npm run build
+npm run start:http            # binds 127.0.0.1:3020 by default
+# or with a bearer token and custom port:
+LOCAL_PM_MCP_TOKEN=change-me LOCAL_PM_MCP_PORT=3020 npm run start:http
+```
+
+MCP clients then point at `http://127.0.0.1:3020/mcp` as a Streamable HTTP
+endpoint. The server keeps one session per client (`Mcp-Session-Id`), enables
+DNS-rebinding protection, and binds to loopback on purpose: put it behind an
+SSH tunnel or a reverse proxy that terminates auth rather than exposing it
+directly. When `LOCAL_PM_MCP_TOKEN` is set, every request must carry
+`Authorization: Bearer <token>`.
 
 ## Usage Examples
 
@@ -320,7 +348,7 @@ Lists tickets with optional filtering.
 - `assigneeId` (string, optional): Filter by assignee (member) ID
 - `epicId` (string, optional): Only tickets that roll up into this epic
 - `isEpic` (boolean, optional): `true` for epics only, `false` for non-epic tickets only
-- `status` (string, optional): Filter by status (todo, in_progress, done)
+- `status` (string, optional): Filter by status key, name or id — see `list_statuses`
 - `limit` (number, optional): Max results (default: 50)
 - `page` (number, optional): Page number (default: 1)
 
@@ -337,7 +365,7 @@ Creates a new ticket.
 - `title` (string, required): Ticket title
 - `project` (string, required): Project ID
 - `description` (string, optional): Ticket description (supports markdown)
-- `status` (string, optional): Initial status (todo, in_progress, done) - defaults to todo
+- `status` (string, optional): Initial status as a key, name or id — see `list_statuses`; defaults to the first status of the project workflow
 - `team` (string, optional): Assigned team ID
 - `assignee` (string, optional): Assignee member ID — use `list_members` to find one
 - `subtasks` (array, optional): Array of subtask objects with `title` and optional `completed` fields
@@ -419,7 +447,7 @@ Moves a ticket to a different status.
 
 **Parameters:**
 - `id` (string, required): Ticket ID
-- `status` (string, required): New status (todo, in_progress, done)
+- `status` (string, required): New status as a key, name or id — see `list_statuses`
 
 ### delete_ticket
 Deletes a ticket.
@@ -462,6 +490,16 @@ want to reuse the workspace's existing set rather than risk a near-duplicate.
 - `search` (string, optional): Only labels whose name contains this text
 - `group` (string, optional): Only labels in this group, by group name, key or id
 - `limit` (number, optional): Maximum labels to return (default: 200)
+
+### list_statuses
+Lists the workflow statuses configured in the workspace. Statuses are configurable
+per workspace and per project, and they replace the historical todo / in_progress /
+done defaults: every ticket tool accepts a status key, name or id and resolves it
+against this list, failing with `Unknown status "..."` and the available keys when
+a value does not match.
+
+**Parameters:**
+- `project` (string, optional): Project ID — returns the workflow that project resolves to (its own statuses falling back to workspace-wide ones)
 
 ### list_activity
 Reads the change history of a ticket, oldest first. Entries cover field changes
